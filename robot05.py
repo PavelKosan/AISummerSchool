@@ -25,7 +25,7 @@ system_prompt = (
 
 
 def openaillm(image):
-    client= OpenAI(api_key="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")
+    client= OpenAI(api_key="")
 
     encoded_image = encode_image(image)
 
@@ -47,4 +47,5 @@ def openaillm(image):
 
 
 openaillm(image)
+
 
