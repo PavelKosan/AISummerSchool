@@ -13,35 +13,53 @@ robot = NiryoRobot('169.254.200.200')
 # Set up conveyor
 conveyor_id = robot.set_conveyor()
 
+
 def capture_workspace_image():
     """Capture and save an image of the workspace"""
     # Move to observation position
     obs_joints = robot.get_joints()
     obs_joints[0] = obs_joints[0] - 1.6  # Adjust x
-    obs_joints[2] = obs_joints[2] + 1    # Adjust z
+    obs_joints[2] = obs_joints[2] + 1  # Adjust z
     obs_joints[4] = obs_joints[4] - 1.7  # Adjust rotation
     robot.move(obs_joints)
-    
+
     # Capture and process image
     mtx, dist = robot.get_camera_intrinsics()
     img_compressed = robot.get_img_compressed()
     img = vision.uncompress_image(img_compressed)
     img = vision.undistort_image(img, mtx, dist)
     workspace_img = vision.extract_img_workspace(img, 1)
-    
+
     # Save the image
     image_path = "workspace_current.jpg"
     cv2.imwrite(image_path, workspace_img)
     return image_path
 
-def get_object_info_from_llm(image_path):
-    """Get object information using LLM"""
+
+def get_object_info_from_llm(image_path, text):
+    """Get object information using LLM.
+    - If single JSON: returns (color, shape)
+    - If list of JSONs: returns list of (color, shape)
+    """
     try:
-        result = llmollama(image_path, OLLAMA_HOST, OLLAMA_USER, OLLAMA_PASS)
-        return result.color, result.shape
+        result = llmollama(image_path, OLLAMA_HOST, OLLAMA_USER, OLLAMA_PASS, user_prompt=text)
+
+        if isinstance(result, dict):
+            # Single object
+            return result.get("color"), result.get("shape")
+
+        elif isinstance(result, list):
+            # List of objects
+            return [(obj.get("color"), obj.get("shape")) for obj in result]
+
+        else:
+            print("[WARN] Unexpected result type:", type(result))
+            return None
+
     except Exception as e:
         print(f"Error getting object info from LLM: {e}")
-        return None, None
+        return None
+
 
 def pick_object(color, shape):
     """Pick up the identified object"""
@@ -53,14 +71,14 @@ def pick_object(color, shape):
             "green": ObjectColor.GREEN
         }
         robot_color = color_map.get(color.lower(), ObjectColor.ANY)
-        
+
         # Convert string shape to ObjectShape enum
         shape_map = {
             "square": ObjectShape.SQUARE,
             "circle": ObjectShape.CIRCLE
         }
         robot_shape = shape_map.get(shape.lower(), ObjectShape.ANY)
-        
+
         # Attempt to pick up the object
         obj_found, shape_ret, color_ret = robot.vision_pick(
             workspace_name="Tobor",
@@ -68,75 +86,72 @@ def pick_object(color, shape):
             shape=robot_shape,
             color=robot_color
         )
-        
+
         return obj_found
     except Exception as e:
         print(f"Error during pick operation: {e}")
         return False
 
+
 def place_on_conveyor():
     """Place the object on the conveyor belt"""
     try:
-        # Move to a position above the conveyor
-        cur_joints = robot.get_joints()
-        cur_joints[1] = cur_joints[1] - 0.3  # Adjust y for conveyor position
-        robot.move(cur_joints)
-        
-        # Release the object
+        robot.move_to_home_pose()
+        cur = robot.get_joints()
+        cur[1] = cur[1] - 0.1
+        cur[2] = cur[2] + 0.1
+        robot.move(cur)
         robot.release_with_tool()
-        
-        # Move back slightly
-        cur_joints[1] = cur_joints[1] + 0.3
-        robot.move(cur_joints)
-        
+
         # Start conveyor movement
         robot.run_conveyor(conveyor_id, 50, ConveyorDirection.FORWARD)
         time.sleep(2)  # Run for 2 seconds
         robot.stop_conveyor(conveyor_id)
-        
+
         return True
     except Exception as e:
         print(f"Error during place operation: {e}")
         return False
 
-def pick_and_place_with_llm():
+
+def pick_and_place_with_llm(text):
     """Main function to execute the pick and place operation using LLM"""
     try:
         # Initial setup
         robot.calibrate_auto()
         robot.move_to_home_pose()
         robot.clear_collision_detected()
-        
+
         # Capture workspace image
         print("Capturing workspace image...")
         image_path = capture_workspace_image()
-        
+
         # Get object information from LLM
         print("Analyzing image with LLM...")
-        color, shape = get_object_info_from_llm(image_path)
+        color, shape = get_object_info_from_llm(image_path, text)
         if not color or not shape:
             print("Could not identify object with LLM")
             return False
-        
+
         print(f"LLM detected: {color} {shape}")
-        
+
         # Pick up the object
         print("Attempting to pick up the object...")
         if not pick_object(color, shape):
             print("Failed to pick up the object")
             return False
-        
+
         # Place on conveyor
         print("Placing object on conveyor...")
         if not place_on_conveyor():
             print("Failed to place object on conveyor")
             return False
-        
+
         # Return to home position
         robot.move_to_home_pose()
         print("Pick and place operation completed successfully")
         return True
-        
+
     except Exception as e:
         print(f"Error during pick and place operation: {e}")
         return False
@@ -144,9 +159,65 @@ def pick_and_place_with_llm():
         # Ensure we stop the conveyor
         robot.stop_conveyor(conveyor_id)
 
+
+def pick_and_place_with_llm_multiple(text):
+    """Main function to execute the pick and place operation using LLM"""
+    try:
+        # Initial setup
+        robot.calibrate_auto()
+        robot.move_to_home_pose()
+        robot.clear_collision_detected()
+
+        # Capture workspace image
+        print("Capturing workspace image...")
+        image_path = capture_workspace_image()
+
+        # Get object information from LLM
+        print("Analyzing image with LLM...")
+        colorShape = get_object_info_from_llm(image_path, text)
+        if not colorShape :
+            print("Could not identify objects with LLM")
+            return False
+
+        for color, shape in colorShape:
+            print(f"LLM detected: {color} {shape}")
+
+            # Pick up the object
+            print("Attempting to pick up the object...")
+            if not pick_object(color, shape):
+                print("Failed to pick up the object")
+                return False
+
+            # Place on conveyor
+            print("Placing object on conveyor...")
+            if not place_on_conveyor():
+                print("Failed to place object on conveyor")
+                return False
+
+            # Return to home position
+            robot.move_to_home_pose()
+            print("Pick and place operation completed successfully")
+
+            obs_joints = robot.get_joints()
+            obs_joints[0] = obs_joints[0] - 1.6  # Adjust x
+            obs_joints[2] = obs_joints[2] + 1  # Adjust z
+            obs_joints[4] = obs_joints[4] - 1.7  # Adjust rotation
+            robot.move(obs_joints)
+        return True
+
+    except Exception as e:
+        print(f"Error during pick and place operation: {e}")
+        return False
+    finally:
+        # Ensure we stop the conveyor
+        robot.stop_conveyor(conveyor_id)
+
+
 if __name__ == "__main__":
     try:
-        pick_and_place_with_llm()
+        robot.clear_collision_detected()
+        #pick_and_place_with_llm("Detect me green square if there is any.")
+        pick_and_place_with_llm_multiple("Detect me just blue and red square objects if there is any.")
     finally:
         # Clean up
         robot.stop_conveyor(conveyor_id)
