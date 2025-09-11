@@ -95,7 +95,7 @@ def grasp_in_square():
 
 
 
-#calibrate()
+calibrate()
 #blink()
 #print_position()
 #print_position2()
@@ -103,7 +103,6 @@ def grasp_in_square():
 #first_move()
 #move_between()
 #calibrate()
-#make_square()
-print(robot.get_pose())
-#grasp_in_square()
-robot.close_connection()
+make_square()
+#print(robot.get_pose())
+#robot.close_connection()
