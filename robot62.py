@@ -4,9 +4,9 @@ import cv2
 import time
 
 # LLM Configuration
-OLLAMA_HOST = "https://ollama.kky.zcu.cz"
-OLLAMA_USER = "niryo"
-OLLAMA_PASS = "Aec3aiqu3oodahye"
+OLLAMA_HOST = ""
+OLLAMA_USER = ""
+OLLAMA_PASS = ""
 
 # Initialize robot
 robot = NiryoRobot('169.254.200.200')
